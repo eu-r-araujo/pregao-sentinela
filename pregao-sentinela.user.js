@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name           Pregão Sentinela (Licitanet)
 // @namespace      PS
-// @version        0.3
+// @version        0.4
 // @description    Alertas de Telegram a partir do chat da sala de disputa (Licitanet)
 // @author         Ronaldo Araújo
 // @match          https://portal.licitanet.com.br/sala-disputa/*
@@ -99,7 +99,7 @@
     if (getChatId()) return;
 
     setTimeout(async () => {
-      const v = prompt("Digite seu CHAT_ID do Telegram (ex: 6254583509):", "");
+      const v = prompt("\nDigite seu CHAT_ID do Telegram (ex: 6254583509):", "");
       if (v && v.trim()) {
         setChatId(v.trim());
         console.log("✅ PS: CHAT_ID salvo.");
