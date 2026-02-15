@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Pregão Sentinela (Licitanet)
 // @namespace    PS
-// @version      0.1
+// @version      0.3
 // @description  Alertas de Telegram a partir do chat da sala de disputa (Licitanet)
 // @match        https://portal.licitanet.com.br/sala-disputa/*
 // @run-at       document-end
