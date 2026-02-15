@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pregão Sentinela (Licitanet)
 // @namespace    PS
-// @version      0.7
-// @description  Envia Telegram quando chegar msg do Sistema/Pregoeiro (header completo tipo "Sistema - 06/02/2026 10:16:52")
+// @version      0.1
+// @description  Alertas de Telegram a partir do chat da sala de disputa (Licitanet)
 // @match        https://portal.licitanet.com.br/sala-disputa/*
 // @run-at       document-end
 // @grant        none
@@ -10,7 +10,7 @@
 
 (() => {
   // ===== CONFIG =====
-  const BOT_TOKEN = "8335643146:AAGjtAPgywLSflgcXrCzP37kFjSh19IKaik"; // <-- psalfbot
+  const BOT_TOKEN = "8335643146:AAGjtAPgywLSflgcXrCzP37kFjSh19IKaik"; // <-- @psalfbot
 
   const UL_SEL = "ul.chat-list";
   const ITEM_SEL = "li.mt-4";
