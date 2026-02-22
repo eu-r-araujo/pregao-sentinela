@@ -1,23 +1,26 @@
 // ==UserScript==
-// @name           Pregão Sentinela (Licitanet)
-// @namespace      PS
-// @version        0.4
-// @description    Alertas de Telegram a partir do chat da sala de disputa (Licitanet)
-// @author         Ronaldo Araújo
-// @match          https://portal.licitanet.com.br/sala-disputa/*
-// @run-at         document-end
-// @grant          none
+// @name         Pregão Sentinela (Licitanet)
+// @namespace    PS
+// @version      0.5
+// @description  Alertas de Telegram a partir do chat da sala de disputa (Licitanet)
+// @author       Ronaldo Araújo
+// @match        https://portal.licitanet.com.br/sala-disputa/*
+// @run-at       document-end
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @updateURL    https://raw.githubusercontent.com/eu-r-araujo/pregao-sentinela/main/pregao-sentinela.user.js
+// @downloadURL  https://raw.githubusercontent.com/eu-r-araujo/pregao-sentinela/main/pregao-sentinela.user.js
 // ==/UserScript==
 
 (() => {
   // ===== CONFIG =====
   const BOT_TOKEN = "8335643146:AAGjtAPgywLSflgcXrCzP37kFjSh19IKaik"; // @psalfbot
-
   const UL_SEL = "ul.chat-list";
   const ITEM_SEL = "li.mt-4";
   const ALVOS = [/^Sistema\b/i, /^Pregoeiro\(a\)\b/i];
 
-  const LS_CHATID = "ps_chat_id";
+  // Storage key (no storage do Tampermonkey/Violentmonkey)
+  const KEY_CHATID = "ps_chat_id";
 
   // dedup
   let lastKey = null;
@@ -26,8 +29,23 @@
   let currentUL = null;
   let obs = null;
 
-  const getChatId = () => (localStorage.getItem(LS_CHATID) || "").trim();
-  const setChatId = (v) => localStorage.setItem(LS_CHATID, (v || "").trim());
+  // ---------- STORAGE (GM_* com fallback) ----------
+  function hasGM() {
+    return (typeof GM_getValue === "function") && (typeof GM_setValue === "function");
+  }
+
+  function getChatId() {
+    const v = hasGM()
+      ? (GM_getValue(KEY_CHATID, "") || "")
+      : (localStorage.getItem(KEY_CHATID) || "");
+    return String(v).trim();
+  }
+
+  function setChatId(v) {
+    const val = String(v || "").trim();
+    if (hasGM()) GM_setValue(KEY_CHATID, val);
+    else localStorage.setItem(KEY_CHATID, val);
+  }
 
   function ehAlvo(autor) {
     return ALVOS.some(rx => rx.test(autor));
@@ -70,7 +88,7 @@
       console.log("⚠️ PS: Sem CHAT_ID salvo.");
       return false;
     }
-    if (!BOT_TOKEN || BOT_TOKEN.includes("COLE_")) {
+    if (!BOT_TOKEN || BOT_TOKEN.includes("COLOQUE_")) {
       console.log("❌ PS: Configure BOT_TOKEN no script.");
       return false;
     }
@@ -95,8 +113,13 @@
     }
   }
 
+  // Evita prompt repetido na mesma aba se o usuário cancelar
   function onboarding() {
     if (getChatId()) return;
+
+    // trava por sessão (aba atual)
+    if (sessionStorage.getItem("ps_onboarding_prompted") === "1") return;
+    sessionStorage.setItem("ps_onboarding_prompted", "1");
 
     setTimeout(async () => {
       const v = prompt("\nDigite seu CHAT_ID do Telegram (ex: 6254583509):", "");
@@ -111,8 +134,6 @@
   }
 
   function montarTextoTelegram(m) {
-    // Queremos exatamente o padrão que o analista já vê no chat:
-    // "Sistema - 06/02/2026 10:16:52"
     const cabecalho = (m.header && m.header.length) ? m.header : m.autor;
     return `${cabecalho}\n\n${m.corpo}`.trim();
   }
