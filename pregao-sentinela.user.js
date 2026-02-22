@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Pregão Sentinela (Licitanet)
 // @namespace    PS
-// @version      0.5
-// @description  Alertas de Telegram a partir do chat da sala de disputa (Licitanet)
+// @version      0.6
+// @description  Alertas a partir do chat da sala de disputa e renovação de sessão (Licitanet)
 // @author       Ronaldo Araújo
 // @match        https://portal.licitanet.com.br/sala-disputa/*
 // @run-at       document-end
@@ -13,14 +13,18 @@
 // ==/UserScript==
 
 (() => {
-  // ===== CONFIG =====
-  const BOT_TOKEN = "8335643146:AAGjtAPgywLSflgcXrCzP37kFjSh19IKaik"; // @psalfbot
-  const UL_SEL = "ul.chat-list";
-  const ITEM_SEL = "li.mt-4";
-  const ALVOS = [/^Sistema\b/i, /^Pregoeiro\(a\)\b/i];
 
-  // Storage key (no storage do Tampermonkey/Violentmonkey)
-  const KEY_CHATID = "ps_chat_id";
+  // ================= CONFIG =================
+  const BOT_TOKEN = "8335643146:AAGjtAPgywLSflgcXrCzP37kFjSh19IKaik"; // @psalfbot
+  const UL_SEL   = "ul.chat-list";
+  const ITEM_SEL = "li.mt-4";
+  const ALVOS    = [/^Sistema\b/i, /^Pregoeiro\(a\)\b/i];
+
+  const LS_CHATID = "ps_chat_id";
+
+  // ===== AUTO RENEW SELECTORS (SEU PADRÃO) =====
+  const TIMER_SEL = "#time-session";
+  const BTN_SEL   = "#btn-renova-sessao";
 
   // dedup
   let lastKey = null;
@@ -29,31 +33,19 @@
   let currentUL = null;
   let obs = null;
 
-  // ---------- STORAGE (GM_* com fallback) ----------
-  function hasGM() {
-    return (typeof GM_getValue === "function") && (typeof GM_setValue === "function");
-  }
+  let renewFired = false;
 
-  function getChatId() {
-    const v = hasGM()
-      ? (GM_getValue(KEY_CHATID, "") || "")
-      : (localStorage.getItem(KEY_CHATID) || "");
-    return String(v).trim();
-  }
+  const getChatId = () => (localStorage.getItem(LS_CHATID) || "").trim();
+  const setChatId = (v) => localStorage.setItem(LS_CHATID, (v || "").trim());
 
-  function setChatId(v) {
-    const val = String(v || "").trim();
-    if (hasGM()) GM_setValue(KEY_CHATID, val);
-    else localStorage.setItem(KEY_CHATID, val);
-  }
-
-  function ehAlvo(autor) {
+  function ehAlvo(autor){
     return ALVOS.some(rx => rx.test(autor));
   }
 
-  function extrair(li) {
+  function extrair(li){
+
     const header = li.querySelector("h5")?.innerText?.trim() || "";
-    const autor = header.split("-")[0]?.trim() || "";
+    const autor  = header.split("-")[0]?.trim() || "";
 
     const corpo =
       li.querySelector(".message")?.innerText?.trim() ||
@@ -65,126 +57,164 @@
       li.getAttribute("data-id-mensagem") ||
       "";
 
-    const key = id || (header + " | " + corpo.slice(0, 160));
-    return { autor, header, corpo, key };
+    const key = id || (header + " | " + corpo.slice(0,160));
+
+    return {autor, header, corpo, key};
   }
 
-  function pegarMaisRecente(ul) {
-    const itens = ul.querySelectorAll(ITEM_SEL);
-    if (!itens.length) return null;
+  function pegarMaisRecente(ul){
 
-    for (let i = 0; i < itens.length; i++) {
+    const itens = ul.querySelectorAll(ITEM_SEL);
+    if(!itens.length) return null;
+
+    for(let i=0;i<itens.length;i++){
       const li = itens[i];
-      const h = li.querySelector("h5")?.innerText?.trim();
+      const h  = li.querySelector("h5")?.innerText?.trim();
       const txt = li.querySelector(".message")?.innerText?.trim() || li.innerText?.trim();
-      if ((h && h.length) || (txt && txt.length > 3)) return li;
+      if((h && h.length) || (txt && txt.length>3)) return li;
     }
     return itens[0];
   }
 
-  async function sendTelegram(text) {
+  async function sendTelegram(text){
+
     const chatId = getChatId();
-    if (!chatId) {
-      console.log("⚠️ PS: Sem CHAT_ID salvo.");
-      return false;
-    }
-    if (!BOT_TOKEN || BOT_TOKEN.includes("COLOQUE_")) {
-      console.log("❌ PS: Configure BOT_TOKEN no script.");
-      return false;
-    }
+    if(!chatId) return false;
 
     const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+
     const payload = {
       chat_id: chatId,
       text,
-      disable_web_page_preview: true,
+      disable_web_page_preview: true
     };
 
-    try {
-      const r = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+    try{
+      const r = await fetch(url,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(payload)
       });
       return r.ok;
-    } catch (e) {
-      console.log("❌ PS: Falha Telegram:", e);
+    }catch(e){
+      console.log("❌ PS: Falha Telegram:",e);
       return false;
     }
   }
 
-  // Evita prompt repetido na mesma aba se o usuário cancelar
-  function onboarding() {
-    if (getChatId()) return;
+  function onboarding(){
 
-    // trava por sessão (aba atual)
-    if (sessionStorage.getItem("ps_onboarding_prompted") === "1") return;
-    sessionStorage.setItem("ps_onboarding_prompted", "1");
+    if(getChatId()) return;
 
-    setTimeout(async () => {
-      const v = prompt("\nDigite seu CHAT_ID do Telegram (ex: 6254583509):", "");
-      if (v && v.trim()) {
+    setTimeout(async()=>{
+
+      const v = prompt("\nDigite seu CHAT_ID do Telegram:", "");
+      if(v && v.trim()){
         setChatId(v.trim());
         console.log("✅ PS: CHAT_ID salvo.");
-        await sendTelegram("✅ Pregão Sentinela: Telegram configurado com sucesso.");
-      } else {
-        console.log("⚠️ PS: CHAT_ID não informado. Recarregue a página para tentar novamente.");
+        await sendTelegram("✅ Pregão Sentinela configurado.");
       }
-    }, 700);
+
+    },700);
   }
 
-  function montarTextoTelegram(m) {
+  function montarTextoTelegram(m){
     const cabecalho = (m.header && m.header.length) ? m.header : m.autor;
     return `${cabecalho}\n\n${m.corpo}`.trim();
   }
 
-  function processar(ul) {
+  function processar(ul){
+
     const li = pegarMaisRecente(ul);
-    if (!li) return;
+    if(!li) return;
 
     const m = extrair(li);
-    if (!ehAlvo(m.autor)) return;
+    if(!ehAlvo(m.autor)) return;
 
-    if (m.key !== lastKey) {
+    if(m.key !== lastKey){
+
       lastKey = m.key;
+
       const text = montarTextoTelegram(m);
-      console.log("📣 PS:", m.header || m.autor, "\n" + m.corpo);
+      console.log("📣 PS:", text);
+
       sendTelegram(text);
     }
   }
 
-  function detach() {
-    if (obs) obs.disconnect();
+  function detach(){
+    if(obs) obs.disconnect();
     obs = null;
     currentUL = null;
   }
 
-  function attach(ul) {
-    if (!ul) return;
-    if (currentUL === ul && obs) return;
+  function attach(ul){
+
+    if(!ul) return;
+    if(currentUL === ul && obs) return;
 
     detach();
     currentUL = ul;
 
-    // inicializa dedup (não dispara histórico)
     const initLI = pegarMaisRecente(currentUL);
-    if (initLI) lastKey = extrair(initLI).key || null;
+    if(initLI) lastKey = extrair(initLI).key || null;
 
-    obs = new MutationObserver(() => processar(currentUL));
-    obs.observe(currentUL, { childList: true, subtree: true });
+    obs = new MutationObserver(()=>processar(currentUL));
+    obs.observe(currentUL,{childList:true,subtree:true});
 
-    console.log("✅ PS: Observer ligado no chat.");
+    console.log("✅ PS: Observer ligado.");
   }
 
-  function loopAttach() {
+  function loopAttach(){
     const ul = document.querySelector(UL_SEL);
-    if (ul) attach(ul);
+    if(ul) attach(ul);
   }
+
+  // =====================
+  // 🔄 ROTINA ORIGINAL DE RENOVAÇÃO (NÃO ALTERADA)
+  // =====================
+
+  function getTimer(){
+    return (document.querySelector(TIMER_SEL)?.textContent || "").trim();
+  }
+
+  function renovar(){
+
+    const btn = document.querySelector(BTN_SEL);
+
+    if(btn){
+      btn.click();
+      console.log("🔄 PS: sessão renovada");
+      return true;
+    }
+    return false;
+  }
+
+  setInterval(()=>{
+
+    const t = getTimer();
+    if(!t) return;
+
+    // reset quando volta perto de 2h
+    if(t.startsWith("02:")) renewFired = false;
+
+    // SEU GATILHO ORIGINAL
+    if(!renewFired && t.startsWith("00:10")){
+      if(renovar()){
+        renewFired = true;
+
+        // 🔥 INJEÇÃO DO TG SEM ALTERAR LÓGICA
+        sendTelegram(`🔄  Sessão Renovada Automaticamente!`);
+      }
+    }
+
+  },2000);
 
   // ===== boot =====
-  console.log("🟡 PS: carregou.");
+  console.log("🟡 PS carregado.");
   onboarding();
 
   loopAttach();
-  setInterval(loopAttach, 800);
+  setInterval(loopAttach,800);
+
 })();
